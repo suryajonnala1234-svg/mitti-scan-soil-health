@@ -1,5 +1,67 @@
 # Sample Soil Health Card Data for Testing
 
+## 🎯 Quick Start Guide
+
+The application now processes OCR **directly in your browser** for better reliability. Simply upload a clear photo of your Government Soil Health Card and the system will extract nutrient values automatically.
+
+## 📋 Government Soil Health Card Format
+
+The app is designed to work with the official **Government of India Soil Health Card** which contains:
+
+### Soil Test Results Section:
+1. **pH** - Soil acidity/alkalinity level
+2. **EC** - Electrical Conductivity  
+3. **Organic Carbon (OC)** - Organic matter content
+4. **Available Nitrogen (N)** - In kg/ha
+5. **Available Phosphorus (P)** - In kg/ha
+6. **Available Potassium (K)** - In kg/ha
+7. **Available Sulphur (S)**
+8. **Available Zinc (Zn)**
+9. **Available Boron (B)**
+10. **Available Iron (Fe)**
+11. **Available Manganese (Mn)**
+12. **Available Copper (Cu)**
+
+### For Best OCR Results:
+- ✅ Take a clear, well-lit photo of the card
+- ✅ Ensure the "Soil Test Results" table is visible
+- ✅ Keep the card flat (avoid shadows and glare)
+- ✅ Higher resolution images work better
+- ✅ The OCR focuses on extracting: **N, P, K, OC, and pH**
+
+## 🔧 Testing with Real Card
+
+### Step 1: Upload Your Card
+1. Login to the app
+2. Navigate to Scanner page
+3. Click "Upload Image" or "Capture Photo"
+4. Select your Soil Health Card image
+
+### Step 2: OCR Processing
+- Wait 10-30 seconds for browser-based OCR
+- Progress bar will show extraction status
+- OCR extracts values automatically
+
+### Step 3: Verify & Correct
+- Review extracted values in the form
+- **Important:** Manually correct any inaccurate values
+- Select your crop type
+- Enter farm size in acres
+- Submit for analysis
+
+## 📊 Understanding Card Values
+
+### Typical Ranges:
+- **pH**: 4.5 - 9.0 (Ideal: 6.0 - 7.5)
+- **N (Nitrogen)**: 0 - 500 kg/ha
+- **P (Phosphorus)**: 0 - 100 kg/ha  
+- **K (Potassium)**: 0 - 300 kg/ha
+- **OC (Organic Carbon)**: 0 - 2.0%
+
+---
+
+# Sample Test Cases (Manual Entry)
+
 ## Test Case 1: Deficient Soil (Wheat)
 ```
 Soil Health Card

@@ -105,6 +105,29 @@ export default function ScannerPage() {
 
       {/* Content */}
       <div className="max-w-4xl mx-auto p-4 mt-6">
+        {/* Sample Card Info */}
+        {step === 'scan' && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-200 rounded-xl p-4"
+          >
+            <div className="flex items-start gap-3">
+              <div className="text-3xl">📋</div>
+              <div className="flex-1">
+                <h4 className="font-semibold text-gray-800 mb-2">Using the Actual Soil Health Card</h4>
+                <p className="text-sm text-gray-700 mb-2">
+                  Upload the official Government Soil Health Card (like the one shown in the example).
+                  The OCR will extract values for: <strong>pH, EC, N, P, K, OC</strong>, and other nutrients.
+                </p>
+                <p className="text-xs text-gray-600">
+                  💡 <strong>Tip:</strong> If OCR doesn't extract perfectly, you can manually enter correct values in the next step.
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {step === 'scan' && (
           <motion.div
             initial={{ opacity: 0, x: -20 }}
@@ -123,6 +146,7 @@ export default function ScannerPage() {
               initialValues={extractedData.soilValues}
               token={token}
               onComplete={handleAnalysisComplete}
+              extractedText={extractedData.extractedText}
             />
           </motion.div>
         )}
