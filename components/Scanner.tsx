@@ -66,8 +66,22 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
   };
   // AI-Powered Intelligent Extraction - Like how ChatGPT analyzes images
   const intelligentExtraction = (text: string): IntelligentExtraction => {
-    const lines = text.split('\n').filter(line => line.trim().length > 2);
-    const lowerText = text.toLowerCase();
+    // Pre-process OCR text to fix common errors
+    let cleanedText = text
+      .replace(/\|/g, ' ')  // Remove table pipes
+      .replace(/\s{2,}/g, ' ')  // Normalize multiple spaces
+      .replace(/([a-z])\s+([A-Z])/g, '$1 $2')  // Fix missing spaces between words
+      .replace(/(?:ds|DS)\s*m/gi, 'dS/m')  // Fix unit spacing
+      .replace(/kg\s*ha/gi, 'kg/ha')  // Fix unit spacing
+      .replace(/kg\s*\/\s*ha/gi, 'kg/ha')  // Fix unit spacing
+      .replace(/(?:Sr\.?|S\.)\s*No\.?/gi, 'S.No')  // Normalize serial number
+      .replace(/pPm/gi, 'ppm')  // Fix common OCR error
+      .replace(/\b0(?=[A-Za-z])/g, 'O')  // Fix O/0 confusion at start of word
+      .replace(/\bl(?=\d)/gi, '1')  // Fix 1/l confusion before numbers
+      .replace(/\bI(?=\d)/g, '1');  // Fix 1/I confusion before numbers
+    
+    const lines = cleanedText.split('\n').filter(line => line.trim().length > 2);
+    const lowerText = cleanedText.toLowerCase();
     
     const result: IntelligentExtraction = {
       confidence: 'Medium',
@@ -76,10 +90,10 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       location: {},
       soilParameters: {},
       recommendations: [],
-      rawText: text
+      rawText: text  // Keep original for display
     };
 
-    // Extract Farmer Details
+    // Extract Farmer Details    // Extract Farmer Details
     const farmerPatterns = {
       'Farmer Name': /(?:farmer|name|grower|cultivator)[\s:]+([a-z\s.]+?)(?:\n|$|sr\.no|s\.no|village|district|taluk|son)/i,
       'Father Name': /(?:father|s\/o|son of|f\/o)[\s:]+([a-z\s.]+?)(?:\n|$|village|district|taluk)/i,
@@ -89,7 +103,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     };
 
     Object.entries(farmerPatterns).forEach(([key, pattern]) => {
-      const match = text.match(pattern);
+      const match = cleanedText.match(pattern);
       if (match && match[1] && match[1].trim().length > 1) {
         result.farmerDetails![key] = match[1].trim();
       }
@@ -105,32 +119,41 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     };
 
     Object.entries(locationPatterns).forEach(([key, pattern]) => {
-      const match = text.match(pattern);
+      const match = cleanedText.match(pattern);
       if (match && match[1] && match[1].trim().length > 1) {
         result.location![key] = match[1].trim();
       }
     });
 
-    // Extract ALL Soil Parameters Dynamically (like an AI would)
+    // Extract ALL Soil Parameters Dynamically - Enhanced for Government Soil Health Cards
     const parameterPatterns = [
-      // Primary Macronutrients
+      // Primary Macronutrients with enhanced table-format matching
       { 
         name: 'pH', 
-        patterns: [/ph[\s:]*([0-9]+\.?[0-9]*)/i], 
+        patterns: [
+          /^\s*\d+\s+ph\s+([0-9]+\.?[0-9]*)\s/im,
+          /ph\s+([0-9]+\.?[0-9]*)\s+(?:acidic|neutral|alkaline)/i,
+          /ph[\s:]+([0-9]+\.?[0-9]*)/i
+        ], 
         range: [3, 14],
         unit: '' 
       },
       { 
         name: 'Electrical Conductivity (EC)', 
-        patterns: [/(?:ec|electrical conductivity)[\s:]*([0-9]+\.?[0-9]*)/i], 
+        patterns: [
+          /^\s*\d+\s+ec\s+([0-9]+\.?[0-9]*)\s+(?:ds|dsm)/im,
+          /ec\s+([0-9]+\.?[0-9]*)\s*(?:ds|dsm)/i,
+          /electrical\s+conductivity\s+([0-9]+\.?[0-9]*)/i
+        ], 
         range: [0, 10],
         unit: 'dS/m' 
       },
       { 
         name: 'Organic Carbon (OC)', 
         patterns: [
-          /organic\s+carbon\s*\(?oc\)?\s*[:\-|]?\s*([0-9]+\.?[0-9]*)/i,
-          /\boc\s*[:\-|]?\s*([0-9]+\.?[0-9]*)/i
+          /^\s*\d+\s+organic\s+carbon\s*\(?oc\)?\s+([0-9]+\.?[0-9]*)\s*%/im,
+          /organic\s+carbon\s*\(?oc\)?\s+([0-9]+\.?[0-9]*)\s*%/i,
+          /\boc\s+([0-9]+\.?[0-9]*)\s*%/i
         ], 
         range: [0, 10],
         unit: '%' 
@@ -138,89 +161,119 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       { 
         name: 'Nitrogen (N)', 
         patterns: [
-          /available\s+nitrogen\s*\(?n\)?\s*[:\-|]?\s*([0-9]+\.?[0-9]*)/i,
-          /nitrogen\s*\(?n\)?\s*[:\-|]?\s*([0-9]+\.?[0-9]*)/i,
-          /\bn[\s\-:]+([0-9]+\.?[0-9]*)/i
+          /^\s*\d+\s+available\s+nitrogen\s*\(?n\)?\s+([0-9]+\.?[0-9]*)\s*(?:kg|kgha|kg\/ha)/im,
+          /available\s+nitrogen\s*\(?n\)?\s+([0-9]+\.?[0-9]*)\s*(?:kg|kgha|kg\/ha)/i,
+          /nitrogen\s*\(?n\)?\s+([0-9]+\.?[0-9]*)\s*(?:kg|kgha)/i
         ], 
-        range: [0, 1000],
+        range: [100, 1000],
         unit: 'kg/ha' 
       },
       { 
         name: 'Phosphorus (P)', 
         patterns: [
-          /available\s+phosphorus\s*\(?p\)?\s*[:\-|]?\s*([0-9]+\.?[0-9]*)/i,
-          /phosphorus\s*\(?p\)?\s*[:\-|]?\s*([0-9]+\.?[0-9]*)/i,
-          /\bp[\s\-:]+([0-9]+\.?[0-9]*)/i
+          /^\s*\d+\s+available\s+phosphorus\s*\(?p\)?\s+([0-9]+\.?[0-9]*)\s*(?:kg|kgha|kg\/ha)/im,
+          /available\s+phosphorus\s*\(?p\)?\s+([0-9]+\.?[0-9]*)\s*(?:kg|kgha|kg\/ha)/i,
+          /phosphorus\s*\(?p\)?\s+([0-9]+\.?[0-9]*)\s*(?:kg|kgha)/i
         ], 
-        range: [0, 1000],
+        range: [5, 200],
         unit: 'kg/ha' 
       },
       { 
         name: 'Potassium (K)', 
         patterns: [
-          /available\s+potassium\s*\(?k\)?\s*[:\-|]?\s*([0-9]+\.?[0-9]*)/i,
-          /potassium\s*\(?k\)?\s*[:\-|]?\s*([0-9]+\.?[0-9]*)/i,
-          /\bk[\s\-:]+([0-9]+\.?[0-9]*)/i
+          /^\s*\d+\s+available\s+potassium\s*\(?k\)?\s+([0-9]+\.?[0-9]*)\s*(?:kg|kgha|kg\/ha)/im,
+          /available\s+potassium\s*\(?k\)?\s+([0-9]+\.?[0-9]*)\s*(?:kg|kgha|kg\/ha)/i,
+          /potassium\s*\(?k\)?\s+([0-9]+\.?[0-9]*)\s*(?:kg|kgha)/i
         ], 
-        range: [0, 1000],
+        range: [50, 500],
         unit: 'kg/ha' 
       },
       // Secondary Nutrients
       { 
         name: 'Sulphur (S)', 
         patterns: [
-          /(?:sulphur|sulfur)\s*\(?s\)?\s*[:\-|]?\s*([0-9]+\.?[0-9]*)/i,
-          /\bs[\s\-:]+([0-9]+\.?[0-9]*)/i
+          /^\s*\d+\s+available\s+(?:sulphur|sulfur)\s*\(?s\)?\s+([0-9]+\.?[0-9]*)\s*ppm/im,
+          /available\s+(?:sulphur|sulfur)\s*\(?s\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i,
+          /(?:sulphur|sulfur)\s*\(?s\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i
         ], 
-        range: [0, 500],
-        unit: 'kg/ha' 
+        range: [5, 100],
+        unit: 'ppm' 
       },
       { 
         name: 'Calcium (Ca)', 
-        patterns: [/(?:calcium|ca)[\s:]*([0-9]+\.?[0-9]*)/i], 
+        patterns: [
+          /^\s*\d+\s+(?:available\s+)?calcium\s*\(?ca\)?\s+([0-9]+\.?[0-9]*)\s*ppm/im,
+          /calcium\s*\(?ca\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i
+        ], 
         range: [0, 5000],
         unit: 'ppm' 
       },
       { 
         name: 'Magnesium (Mg)', 
-        patterns: [/(?:magnesium|mg)[\s:]*([0-9]+\.?[0-9]*)/i], 
+        patterns: [
+          /^\s*\d+\s+(?:available\s+)?magnesium\s*\(?mg\)?\s+([0-9]+\.?[0-9]*)\s*ppm/im,
+          /magnesium\s*\(?mg\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i
+        ], 
         range: [0, 500],
         unit: 'ppm' 
       },
-      // Micronutrients
+      // Micronutrients with enhanced patterns
       { 
         name: 'Zinc (Zn)', 
-        patterns: [/(?:zinc|zn)[\s:]*([0-9]+\.?[0-9]*)/i], 
-        range: [0, 100],
+        patterns: [
+          /^\s*\d+\s+available\s+zinc\s*\(?zn\)?\s+([0-9]+\.?[0-9]*)\s*ppm/im,
+          /available\s+zinc\s*\(?zn\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i,
+          /zinc\s*\(?zn\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i
+        ], 
+        range: [0.5, 50],
         unit: 'ppm' 
       },
       { 
         name: 'Boron (B)', 
-        patterns: [/(?:boron|b)[\s:]*([0-9]+\.?[0-9]*)/i], 
-        range: [0, 10],
+        patterns: [
+          /^\s*\d+\s+available\s+boron\s*\(?b\)?\s+([0-9]+\.?[0-9]*)\s*ppm/im,
+          /available\s+boron\s*\(?b\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i,
+          /boron\s*\(?b\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i
+        ], 
+        range: [0.2, 10],
         unit: 'ppm' 
       },
       { 
         name: 'Iron (Fe)', 
-        patterns: [/(?:iron|fe)[\s:]*([0-9]+\.?[0-9]*)/i], 
-        range: [0, 500],
+        patterns: [
+          /^\s*\d+\s+available\s+iron\s*\(?fe\)?\s+([0-9]+\.?[0-9]*)\s*ppm/im,
+          /available\s+iron\s*\(?fe\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i,
+          /iron\s*\(?fe\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i
+        ], 
+        range: [5, 200],
         unit: 'ppm' 
       },
       { 
         name: 'Manganese (Mn)', 
-        patterns: [/(?:manganese|mn)[\s:]*([0-9]+\.?[0-9]*)/i], 
-        range: [0, 500],
+        patterns: [
+          /^\s*\d+\s+available\s+manganese\s*\(?mn\)?\s+([0-9]+\.?[0-9]*)\s*ppm/im,
+          /available\s+manganese\s*\(?mn\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i,
+          /manganese\s*\(?mn\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i
+        ], 
+        range: [2, 100],
         unit: 'ppm' 
       },
       { 
         name: 'Copper (Cu)', 
-        patterns: [/(?:copper|cu)[\s:]*([0-9]+\.?[0-9]*)/i], 
-        range: [0, 100],
+        patterns: [
+          /^\s*\d+\s+available\s+copper\s*\(?cu\)?\s+([0-9]+\.?[0-9]*)\s*ppm/im,
+          /available\s+copper\s*\(?cu\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i,
+          /copper\s*\(?cu\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i
+        ], 
+        range: [0.5, 50],
         unit: 'ppm' 
       },
       { 
         name: 'Molybdenum (Mo)', 
-        patterns: [/(?:molybdenum|mo)[\s:]*([0-9]+\.?[0-9]*)/i], 
+        patterns: [
+          /^\s*\d+\s+(?:available\s+)?molybdenum\s*\(?mo\)?\s+([0-9]+\.?[0-9]*)\s*ppm/im,
+          /molybdenum\s*\(?mo\)?\s+([0-9]+\.?[0-9]*)\s*ppm/i
+        ], 
         range: [0, 10],
         unit: 'ppm' 
       },
@@ -229,7 +282,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     // Extract parameters with smart matching
     parameterPatterns.forEach(({ name, patterns, range, unit }) => {
       for (const pattern of patterns) {
-        const match = text.match(pattern);
+        const match = cleanedText.match(pattern);
         if (match && match[1]) {
           const value = parseFloat(match[1]);
           if (!isNaN(value) && value >= range[0] && value <= range[1]) {
@@ -261,31 +314,64 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       }
     });
 
-    // Extract from table format (S.No | Parameter | Value | Unit | Rating)
+    // Extract from table format (S.No | Parameter | Value | Unit | Rating) - Enhanced for Government Cards
     lines.forEach((line) => {
-      // Match table rows with multiple columns
-      const tableMatch = line.match(/([a-z\s()]+?)\s+([0-9]+\.?[0-9]*)\s+([a-z\/%-]+)\s+(high|medium|low|normal|deficient|adequate|good|poor)/i);
-      if (tableMatch) {
-        const paramName = tableMatch[1].trim();
-        const value = tableMatch[2];
-        const unit = tableMatch[3];
-        const rating = tableMatch[4];
+      // Government card table format: "1 pH 6.39 Acidic 7, Neutral"
+      // or "4 Available Nitrogen (N) 305.00 kg ha Medium 280 - 560 kg/ha"
+      
+      // Pattern 1: Full table row with S.No
+      const tableMatch1 = line.match(/^\s*(\d+)\s+([\w\s()]+?)\s+([0-9]+\.?[0-9]*)\s+([\w\s\/%-]*?)\s+(high|medium|low|normal|deficient|adequate|sufficient|good|poor|acidic|alkaline)/i);
+      if (tableMatch1) {
+        const paramName = tableMatch1[2].trim();
+        const value = tableMatch1[3];
+        const unit = tableMatch1[4].trim() || '';
+        const rating = tableMatch1[5];
+        
+        // Map common parameter names
+        let mappedName = paramName;
+        if (/^ph$/i.test(paramName)) mappedName = 'pH';
+        else if (/^ec$/i.test(paramName)) mappedName = 'Electrical Conductivity (EC)';
+        else if (/organic.*carbon/i.test(paramName)) mappedName = 'Organic Carbon (OC)';
+        else if (/nitrogen/i.test(paramName)) mappedName = 'Nitrogen (N)';
+        else if (/phosphorus/i.test(paramName)) mappedName = 'Phosphorus (P)';
+        else if (/potassium/i.test(paramName)) mappedName = 'Potassium (K)';
+        else if (/sulphur|sulfur/i.test(paramName)) mappedName = 'Sulphur (S)';
+        else if (/zinc/i.test(paramName)) mappedName = 'Zinc (Zn)';
+        else if (/boron/i.test(paramName)) mappedName = 'Boron (B)';
+        else if (/iron/i.test(paramName)) mappedName = 'Iron (Fe)';
+        else if (/manganese/i.test(paramName)) mappedName = 'Manganese (Mn)';
+        else if (/copper/i.test(paramName)) mappedName = 'Copper (Cu)';
         
         // Add if not already exists
-        const existingKey = Object.keys(result.soilParameters).find(k => 
-          k.toLowerCase().includes(paramName.toLowerCase()) || 
-          paramName.toLowerCase().includes(k.toLowerCase().split('(')[0].trim())
-        );
+        if (!result.soilParameters[mappedName]) {
+          result.soilParameters[mappedName] = { value, unit, rating };
+        }
+      }
+      
+      // Pattern 2: Simpler table format without rating
+      const tableMatch2 = line.match(/([a-z\s()]+?)\s+([0-9]+\.?[0-9]*)\s+([\w\/%-]+)/i);
+      if (tableMatch2 && !tableMatch1) {
+        const paramName = tableMatch2[1].trim();
+        const value = tableMatch2[2];
+        const unit = tableMatch2[3];
         
-        if (!existingKey) {
-          result.soilParameters[paramName] = { value, unit, rating };
+        // Only add if parameter name looks valid (contains common keywords)
+        if (/ph|ec|carbon|nitrogen|phosphorus|potassium|sulphur|zinc|boron|iron|manganese|copper/i.test(paramName)) {
+          const existingKey = Object.keys(result.soilParameters).find(k => 
+            k.toLowerCase().includes(paramName.toLowerCase()) || 
+            paramName.toLowerCase().includes(k.toLowerCase().split('(')[0].trim())
+          );
+          
+          if (!existingKey) {
+            result.soilParameters[paramName] = { value, unit };
+          }
         }
       }
     });
 
     // Extract soil texture and type
-    if (/clay|loamy|sandy|silt/i.test(text)) {
-      const soilTypeMatch = text.match(/(?:soil type|texture)[\s:]*([a-z\s]+?)(?:\n|$)/i);
+    if (/clay|loamy|sandy|silt/i.test(cleanedText)) {
+      const soilTypeMatch = cleanedText.match(/(?:soil type|texture)[\s:]*([a-z\s]+?)(?:\n|$)/i);
       if (soilTypeMatch) {
         result.soilParameters['Soil Type'] = { 
           value: soilTypeMatch[1].trim() 
@@ -294,9 +380,9 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     }
 
     // Extract recommendations
-    const recStart = text.toLowerCase().indexOf('recommendation');
+    const recStart = cleanedText.toLowerCase().indexOf('recommendation');
     if (recStart !== -1) {
-      const recText = text.substring(recStart);
+      const recText = cleanedText.substring(recStart);
       const recLines = recText.split('\n').slice(1, 8);
       result.recommendations = recLines
         .filter(line => line.trim().length > 10)

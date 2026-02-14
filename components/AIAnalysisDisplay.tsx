@@ -156,7 +156,7 @@ export default function AIAnalysisDisplay({ data, onProceed }: AIAnalysisProps) 
             >
               <input
                 type="checkbox"
-                checked={selectedParams[key]}
+                checked={selectedParams[key] ?? false}
                 onChange={(e) => setSelectedParams(prev => ({ ...prev, [key]: e.target.checked }))}
                 className="w-5 h-5 rounded border-2 border-green-600 text-green-600 focus:ring-2 focus:ring-green-500"
               />

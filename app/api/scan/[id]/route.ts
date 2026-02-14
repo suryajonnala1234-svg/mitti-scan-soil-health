@@ -5,10 +5,13 @@ import { verifyToken } from '@/lib/jwt';
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     await connectDB();
+
+    // Await params (Next.js 15 requirement)
+    const { id } = await params;
 
     // Get token from header
     const authHeader = req.headers.get('authorization');
@@ -23,7 +26,7 @@ export async function GET(
     const decoded = verifyToken(token);
 
     const scan = await SoilScan.findOne({
-      _id: params.id,
+      _id: id,
       userId: decoded.userId,
     });
 
