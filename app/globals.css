@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --agriculture-green: #2d5016;
+  --agriculture-light-green: #6b8e23;
+  --agriculture-yellow: #f4a460;
+  --agriculture-brown: #8b4513;
+  --agriculture-earth: #d2691e;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-gradient-to-br from-green-50 via-yellow-50 to-orange-50 text-foreground;
+    min-height: 100vh;
+  }
+}
+
+@layer utilities {
+  .agriculture-gradient {
+    background: linear-gradient(135deg, #2d5016 0%, #6b8e23 50%, #8b4513 100%);
+  }
+  
+  .agriculture-card {
+    @apply bg-white/90 backdrop-blur-sm rounded-2xl shadow-xl border-2 border-green-200;
+  }
+  
+  .btn-agriculture {
+    @apply bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white font-semibold py-3 px-6 rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105;
+  }
+  
+  .text-agriculture {
+    @apply text-transparent bg-clip-text bg-gradient-to-r from-green-700 to-green-900;
+  }
+
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+
+  .animate-grow {
+    animation: grow 2s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-20px);
+    }
+  }
+
+  @keyframes grow {
+    0%, 100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.05);
+    }
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-green-50;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-green-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-green-700;
+}
