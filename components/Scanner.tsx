@@ -66,19 +66,47 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
   };
   // AI-Powered Intelligent Extraction - Like how ChatGPT analyzes images
   const intelligentExtraction = (text: string): IntelligentExtraction => {
-    // Pre-process OCR text to fix common errors
+    // Aggressive pre-processing to fix OCR errors
     let cleanedText = text
       .replace(/\|/g, ' ')  // Remove table pipes
+      .replace(/[|]/g, ' ')  // Remove vertical bars
       .replace(/\s{2,}/g, ' ')  // Normalize multiple spaces
       .replace(/([a-z])\s+([A-Z])/g, '$1 $2')  // Fix missing spaces between words
-      .replace(/(?:ds|DS)\s*m/gi, 'dS/m')  // Fix unit spacing
-      .replace(/kg\s*ha/gi, 'kg/ha')  // Fix unit spacing
-      .replace(/kg\s*\/\s*ha/gi, 'kg/ha')  // Fix unit spacing
-      .replace(/(?:Sr\.?|S\.)\s*No\.?/gi, 'S.No')  // Normalize serial number
-      .replace(/pPm/gi, 'ppm')  // Fix common OCR error
-      .replace(/\b0(?=[A-Za-z])/g, 'O')  // Fix O/0 confusion at start of word
-      .replace(/\bl(?=\d)/gi, '1')  // Fix 1/l confusion before numbers
-      .replace(/\bI(?=\d)/g, '1');  // Fix 1/I confusion before numbers
+      
+      // Fix common OCR unit errors
+      .replace(/(?:ds|DS)\s*[\/]?\s*m/gi, 'dS/m')  // Fix ds/m, ds m, DSm
+      .replace(/(?:kg|Kg|KG)\s*[\/]?\s*(?:ha|Ha|HA|hao?|Hao?)/gi, 'kg/ha')  // Fix kg/ha, kg ha, Koa, kgha
+      .replace(/(?:kg|Kg)\s*(?:ha|Ha|hao?)/gi, 'kg/ha')  // Fix kgha, kghao
+      .replace(/Koa/gi, 'kg/ha')  // Common OCR error
+      .replace(/Kaz/gi, 'kg/ha')  // Common OCR error
+      .replace(/kgha/gi, 'kg/ha')
+      
+      // Fix ppm errors
+      .replace(/(?:pPm|PPm|PFm|pfm)/gi, 'ppm')
+      .replace(/(?:ds|DS)(?:m|rn)/gi, 'dS/m')
+      
+      // Fix percentage
+      .replace(/(?:0\/0|o\/o)/gi, '%')
+      
+      // Fix serial numbers
+      .replace(/(?:Sr\.?|S\.)\s*No\.?/gi, 'S.No')
+      
+      // Fix number/letter confusion
+      .replace(/\b0(?=[A-Za-z])/g, 'O')  // 0 → O before letters
+      .replace(/\bl(?=\d)/gi, '1')  // l → 1 before numbers
+      .replace(/\bI(?=\d)/g, '1')   // I → 1 before numbers
+      .replace(/\bO(?=\d)/g, '0')   // O → 0 before numbers
+      
+      // Fix decimal points
+      .replace(/([0-9])\s*[.,]\s*([0-9])/g, '$1.$2')  // Fix "6 39" → "6.39"
+      
+      // Normalize parameter names
+      .replace(/Available\s+/gi, 'Available ')
+      .replace(/Nitrogen\s*\(N\)/gi, 'Nitrogen')
+      .replace(/Phosphorus\s*\(P\)/gi, 'Phosphorus')
+      .replace(/Potassium\s*\(K\)/gi, 'Potassium')
+      .replace(/Sulphur\s*\(S\)/gi, 'Sulphur')
+      .replace(/Organic\s+Carbon\s*\(OC\)/gi, 'Organic Carbon');
     
     const lines = cleanedText.split('\n').filter(line => line.trim().length > 2);
     const lowerText = cleanedText.toLowerCase();
@@ -366,6 +394,70 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
             result.soilParameters[paramName] = { value, unit };
           }
         }
+      }
+    });
+
+    // Comprehensive Line-by-Line Fallback Extraction (catches anything patterns missed)
+    const parameterKeywords = [
+      { name: 'pH', keywords: ['ph'], range: [3, 14], unit: '' },
+      { name: 'Electrical Conductivity (EC)', keywords: ['ec', 'electrical conductivity', 'electrical'], range: [0, 10], unit: 'dS/m' },
+      { name: 'Organic Carbon (OC)', keywords: ['organic carbon', 'organic', 'oc'], range: [0, 10], unit: '%' },
+      { name: 'Nitrogen (N)', keywords: ['nitrogen', 'available nitrogen'], range: [100, 1000], unit: 'kg/ha' },
+      { name: 'Phosphorus (P)', keywords: ['phosphorus', 'available phosphorus'], range: [5, 200], unit: 'kg/ha' },
+      { name: 'Potassium (K)', keywords: ['potassium', 'available potassium'], range: [50, 500], unit: 'kg/ha' },
+      { name: 'Sulphur (S)', keywords: ['sulphur', 'sulfur', 'available sulphur', 'available sulfur'], range: [5, 100], unit: 'ppm' },
+      { name: 'Zinc (Zn)', keywords: ['zinc', 'available zinc'], range: [0.5, 50], unit: 'ppm' },
+      { name: 'Boron (B)', keywords: ['boron', 'available boron'], range: [0.2, 10], unit: 'ppm' },
+      { name: 'Iron (Fe)', keywords: ['iron', 'available iron'], range: [5, 200], unit: 'ppm' },
+      { name: 'Manganese (Mn)', keywords: ['manganese', 'available manganese'], range: [2, 100], unit: 'ppm' },
+      { name: 'Copper (Cu)', keywords: ['copper', 'available copper'], range: [0.5, 50], unit: 'ppm' },
+    ];
+
+    parameterKeywords.forEach(({ name, keywords, range, unit }) => {
+      // Skip if already found
+      if (result.soilParameters[name]) return;
+
+      // Search each line for this parameter
+      for (const line of lines) {
+        const lowerLine = line.toLowerCase();
+        
+        // Check if line contains any of the keywords
+        const hasKeyword = keywords.some(keyword => lowerLine.includes(keyword));
+        if (!hasKeyword) continue;
+
+        // Extract ALL numbers from this line
+        const numbers = line.match(/([0-9]+\.?[0-9]*)/g);
+        if (!numbers) continue;
+
+        // Find first valid number in range (skip S.No which is usually first)
+        for (let i = 0; i < numbers.length; i++) {
+          const num = parseFloat(numbers[i]);
+          
+          // Skip serial numbers (usually single digit or small number at start)
+          if (i === 0 && num < 20 && num === parseInt(numbers[i])) continue;
+          
+          // Check if number is in valid range
+          if (!isNaN(num) && num >= range[0] && num <= range[1]) {
+            // Extract rating from same line
+            let rating = '';
+            if (/high|adequate|sufficient|normal|good/i.test(line)) {
+              rating = 'High/Normal';
+            } else if (/medium|moderate/i.test(line)) {
+              rating = 'Medium';
+            } else if (/low|deficient|critical|poor/i.test(line)) {
+              rating = 'Low/Deficient';
+            }
+
+            result.soilParameters[name] = {
+              value: numbers[i],
+              unit: unit,
+              rating: rating || undefined
+            };
+            break;  // Found value, move to next parameter
+          }
+        }
+        
+        if (result.soilParameters[name]) break;  // Found in this line, stop searching
       }
     });
 
