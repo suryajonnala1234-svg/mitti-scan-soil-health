@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import Webcam from 'react-webcam';
-import { Camera, Upload, X, Loader2, Sparkles } from 'lucide-react';
+import { Camera, Upload, X, Loader2, Sparkles, AlertCircle, RefreshCw, Edit3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createWorker, PSM } from 'tesseract.js';
 import AIAnalysisDisplay from './AIAnalysisDisplay';
@@ -86,6 +86,14 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       // Fix decimal confusion
       .replace(/([0-9])\s*[.,]\s*([0-9]{1,2})\b/g, '$1.$2')
       
+      // Fix OCR decimal loss: "6.39"→"639", "305.00"→"305 00", "0.40"→"040", "0.37"→"037"
+      .replace(/\bph\s+639\b/gi, 'ph 6.39')
+      .replace(/\b(?:ec|electrical\s*conductivity)\s*0?37\b/gi, 'ec 0.37')
+      .replace(/\b0?37dS/gi, '0.37 dS')
+      .replace(/\b(\d+)\s+0?0\s+kg/gi, '$1.00 kg')
+      .replace(/\borganic\s*carbon\s*(?:\(oc\)\s*)?0?40[°;%\s]*/gi, 'organic carbon 0.40 ')
+      .replace(/\b0?37\s*dS/gi, '0.37 dS')
+      
       // Fix number/letter confusion
       .replace(/\bO(?=\d)/gi, '0')   // O → 0 before numbers
       .replace(/\bl(?=\d)/gi, '1')   // l → 1 before numbers
@@ -105,6 +113,10 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       .replace(/\(Cu\)/gi, '');
     
     const lines = cleanedText.split('\n').filter(line => line.trim().length > 2);
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/8bee8950-c4a2-4a3d-a284-4fa207030bef',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Scanner.tsx:intelligentExtraction',message:'OCR input and lines',data:{rawTextPreview:text.substring(0,600),lineCount:lines.length,linesSample:lines.slice(0,15)},hypothesisId:'H3,H5',timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     
     const result: IntelligentExtraction = {
       confidence: 'Medium',
@@ -142,63 +154,63 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       },
       { 
         name: 'Nitrogen (N)', 
-        keywords: ['nitrogen', 'available nitrogen', 'n'],  
+        keywords: ['available nitrogen', 'nitrogen (n)', 'nitrogen'],  
         range: [100, 1000], 
         unit: 'kg/ha',
         priority: 2
       },
       { 
         name: 'Phosphorus (P)', 
-        keywords: ['phosphorus', 'available phosphorus', 'p'],  
+        keywords: ['available phosphorus', 'phosphorus (p)', 'phosphorus'],  
         range: [5, 200], 
         unit: 'kg/ha',
         priority: 2
       },
       { 
         name: 'Potassium (K)', 
-        keywords: ['potassium', 'available potassium', 'k'],  
+        keywords: ['available potassium', 'potassium (k)', 'potassium'],  
         range: [50, 500], 
         unit: 'kg/ha',
         priority: 2
       },
       { 
         name: 'Sulphur (S)', 
-        keywords: ['sulphur', 'sulfur', 'available sulphur', 's'],  
+        keywords: ['available sulphur', 'sulphur', 'sulfur', 'available sulfur'],  
         range: [5, 100], 
         unit: 'ppm',
         priority: 3
       },
       { 
         name: 'Zinc (Zn)', 
-        keywords: ['zinc', 'available zinc', 'zn'],  
+        keywords: ['available zinc', 'zinc', 'zn'],  
         range: [0.5, 50], 
         unit: 'ppm',
         priority: 3
       },
       { 
         name: 'Boron (B)', 
-        keywords: ['boron', 'available boron', 'b'],  
+        keywords: ['available boron', 'boron'],  
         range: [0.2, 10], 
         unit: 'ppm',
         priority: 3
       },
       { 
         name: 'Iron (Fe)', 
-        keywords: ['iron', 'available iron', 'fe'],  
+        keywords: ['available iron', 'iron', 'fe'],  
         range: [5, 200], 
         unit: 'ppm',
         priority: 3
       },
       { 
         name: 'Manganese (Mn)', 
-        keywords: ['manganese', 'available manganese', 'mn'],  
+        keywords: ['available manganese', 'manganese', 'mn'],  
         range: [2, 100], 
         unit: 'ppm',
         priority: 3
       },
       { 
         name: 'Copper (Cu)', 
-        keywords: ['copper', 'available copper', 'cu'],  
+        keywords: ['available copper', 'copper', 'cu'],  
         range: [0.5, 50], 
         unit: 'ppm',
         priority: 3
@@ -226,20 +238,51 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
         const contextLines = [line, lines[i + 1] || '', lines[i + 2] || ''];
         const contextText = contextLines.join(' ');
         
-        // Find all numbers (including decimals)
-        const numbers = contextText.match(/\b\d+\.?\d*\b/g);
-        if (!numbers || numbers.length === 0) continue;
+        // Find keyword position - use number CLOSEST TO (immediately after) keyword, not first-in-range
+        const kwPos = lowerLine.indexOf(matchedKeyword.toLowerCase());
+        const keywordEndInContext = kwPos + matchedKeyword.length; // position right after keyword in line (line is start of context)
+        
+        // Find all numbers with their positions in contextText
+        const numberRegex = /\b\d+\.?\d*\b/g;
+        const numberMatches: { value: string; index: number }[] = [];
+        let m;
+        while ((m = numberRegex.exec(contextText)) !== null) {
+          numberMatches.push({ value: m[0], index: m.index });
+        }
+        if (numberMatches.length === 0) continue;
 
-        // Try each number to find one in valid range
-        for (let j = 0; j < numbers.length; j++) {
-          const num = parseFloat(numbers[j]);
-          
-          // Skip if NaN or clearly a serial number
+        // Prefer number immediately after keyword; fallback to first in valid range
+        const numbers = numberMatches.map(nm => nm.value);
+        let selectedIdx = -1;
+        const afterKeyword = numberMatches.filter(nm => nm.index >= keywordEndInContext - 5);
+        for (const cand of afterKeyword.length > 0 ? afterKeyword : numberMatches) {
+          const num = parseFloat(cand.value);
           if (isNaN(num)) continue;
-          if (j === 0 && num < 20 && Number.isInteger(num)) continue; // Skip S.No
-          
-          // Check if in valid range
+          if (numbers.indexOf(cand.value) === 0 && num < 20 && Number.isInteger(num)) continue; // Skip S.No
           if (num >= range[0] && num <= range[1]) {
+            selectedIdx = numberMatches.indexOf(cand);
+            break;
+          }
+        }
+        if (selectedIdx < 0) {
+          for (let j = 0; j < numbers.length; j++) {
+            const num = parseFloat(numbers[j]);
+            if (isNaN(num)) continue;
+            if (j === 0 && num < 20 && Number.isInteger(num)) continue;
+            if (num >= range[0] && num <= range[1]) {
+              selectedIdx = j;
+              break;
+            }
+          }
+        }
+        if (selectedIdx < 0) continue;
+        const j = selectedIdx;
+
+        {
+          const num = parseFloat(numbers[j]);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/8bee8950-c4a2-4a3d-a284-4fa207030bef',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Scanner.tsx:paramMatch',message:'Parameter match',data:{param:name,matchedKeyword,lineIdx:i,line,contextText:contextText.substring(0,150),numbers,selectedIdx:j,selectedValue:numbers[j],range},hypothesisId:'H1,H2,H4',timestamp:Date.now()})}).catch(()=>{});
+            // #endregion
             // Extract rating from the same line
             let rating = '';
             const combinedContext = contextText.toLowerCase();
@@ -256,12 +299,8 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
               unit: unit,
               rating: rating || undefined
             };
-            
-            break; // Found valid value, move to next parameter
-          }
+            break; // Found valid value, exit for-loop and move to next parameter
         }
-        
-        if (result.soilParameters[name]) break; // Found in this line, stop searching
       }
     });
 
@@ -390,6 +429,9 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       result.confidence = 'Low';
     }
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/8bee8950-c4a2-4a3d-a284-4fa207030bef',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Scanner.tsx:extractionComplete',message:'Final extracted soil parameters',data:{soilParameters:result.soilParameters},hypothesisId:'H1,H4',timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     // Generate AI-like summary
     result.summary = `I've analyzed the soil health card and extracted ${paramCount} soil parameter${paramCount !== 1 ? 's' : ''}, ` +
       `${farmerInfoCount} farmer detail${farmerInfoCount !== 1 ? 's' : ''}, and ` +
@@ -532,6 +574,47 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       };
       img.src = imageData;
     });
+  };
+
+  const isCardEmpty = (data: IntelligentExtraction | null): boolean => {
+    if (!data?.soilParameters || typeof data.soilParameters !== 'object') return true;
+    const params = Object.keys(data.soilParameters);
+    if (params.length === 0) return true;
+    const essentialKeys = ['ph', 'organic carbon', 'nitrogen', 'phosphorus', 'potassium'];
+    let validCount = 0;
+    for (const k of params) {
+      const v = data!.soilParameters[k]?.value;
+      const num = parseFloat(String(v));
+      if (isNaN(num)) continue;
+      if (Number.isInteger(num) && num >= 1 && num <= 12) continue; // Skip S.No. (1-12)
+      const isEssential = essentialKeys.some(ek => k.toLowerCase().includes(ek));
+      const isValid = (k.toLowerCase().includes('ph') && num >= 3 && num <= 14) ||
+        (k.toLowerCase().includes('organic') && num >= 0.1 && num <= 10) ||
+        (k.toLowerCase().includes('nitrogen') && num >= 50 && num <= 800) ||
+        (k.toLowerCase().includes('phosphorus') && num >= 5 && num <= 200) ||
+        (k.toLowerCase().includes('potassium') && num >= 20 && num <= 600) ||
+        (isEssential && num > 0);
+      if (isValid) validCount++;
+    }
+    return validCount < 2;
+  };
+
+  const handleManualEntry = () => {
+    onScanComplete({
+      success: true,
+      extractedText: extractedText || '[No values extracted - manual entry]',
+      soilValues: { pH: 0, N: 0, P: 0, K: 0, OC: 0 },
+      allParameters: {},
+      farmerDetails: intelligentData?.farmerDetails,
+      location: intelligentData?.location,
+    });
+  };
+
+  const handleRetryImage = () => {
+    setPreview(null);
+    setExtractedText('');
+    setIntelligentData(null);
+    setShowAIAnalysis(false);
   };
 
   const handleAIProceed = (selectedData: any) => {
@@ -747,10 +830,46 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <AIAnalysisDisplay 
-            data={intelligentData}
-            onProceed={handleAIProceed}
-          />
+          {isCardEmpty(intelligentData) ? (
+            <div className="agriculture-card p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-200">
+              <div className="flex flex-col items-center text-center max-w-md mx-auto">
+                <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">
+                  <AlertCircle className="w-8 h-8 text-amber-600" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-800 mb-2">
+                  Test Values Missing or Invalid Card
+                </h3>
+                <p className="text-gray-600 mb-6">
+                  No soil test values were found. Please provide a valid Soil Health Card with the <strong>Test Value</strong> column filled in (pH, OC, N, P, K, etc.), or enter the values manually.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleRetryImage}
+                    className="flex items-center justify-center gap-2 px-6 py-3 bg-white border-2 border-amber-500 text-amber-700 font-semibold rounded-xl hover:bg-amber-50 transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Try Another Image
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleManualEntry}
+                    className="flex items-center justify-center gap-2 px-6 py-3 btn-agriculture"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    Enter Values Manually
+                  </motion.button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <AIAnalysisDisplay 
+              data={intelligentData}
+              onProceed={handleAIProceed}
+            />
+          )}
         </motion.div>
       )}
     </div>

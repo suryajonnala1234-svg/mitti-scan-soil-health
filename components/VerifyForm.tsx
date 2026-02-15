@@ -242,8 +242,8 @@ export default function VerifyForm({ initialValues, token, onComplete, extracted
             type="number"
             step="0.1"
             min="0.1"
-            value={farmSize}
-            onChange={(e) => setFarmSize(parseFloat(e.target.value))}
+            value={Number.isNaN(farmSize) ? '' : farmSize}
+            onChange={(e) => setFarmSize(parseFloat(e.target.value) || 1)}
             className="w-full px-4 py-3 rounded-xl border-2 border-green-200 focus:border-green-500 focus:outline-none transition-colors"
             required
           />
