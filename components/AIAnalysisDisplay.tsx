@@ -41,11 +41,33 @@ export default function AIAnalysisDisplay({ data, onProceed }: AIAnalysisProps) 
     setSelectedParams(selected);
   }, [data]);
 
+  const orderedEntries = React.useMemo(() => {
+    const desiredOrder = [
+      'pH',
+      'Organic Carbon (OC)',
+      'Nitrogen (N)',
+      'Phosphorus (P)',
+      'Potassium (K)',
+      'Sulphur (S)',
+      'Iron (Fe)',
+      'Electrical Conductivity (EC)',
+    ].map(o => o.toLowerCase());
+
+    return Object.entries(data.soilParameters).sort(([a], [b]) => {
+      const ai = desiredOrder.indexOf(a.toLowerCase());
+      const bi = desiredOrder.indexOf(b.toLowerCase());
+      if (ai === -1 && bi === -1) return a.localeCompare(b);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  }, [data.soilParameters]);
+
   const handleProceed = () => {
     const selectedData = {
       farmerDetails: data.farmerDetails,
       location: data.location,
-      soilParameters: Object.entries(data.soilParameters)
+      soilParameters: orderedEntries
         .filter(([key]) => selectedParams[key])
         .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {}),
     };
@@ -146,7 +168,7 @@ export default function AIAnalysisDisplay({ data, onProceed }: AIAnalysisProps) 
           Soil Parameters Extracted ({Object.keys(data.soilParameters).length} found)
         </h3>
         <div className="space-y-3">
-          {Object.entries(data.soilParameters).map(([key, param], index) => (
+          {orderedEntries.map(([key, param], index) => (
             <motion.div
               key={key}
               initial={{ opacity: 0, x: -20 }}

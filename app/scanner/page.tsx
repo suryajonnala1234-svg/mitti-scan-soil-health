@@ -59,8 +59,8 @@ export default function ScannerPage() {
                 {step === 'scan' ? 'Scan Soil Health Card' : 'Verify & Analyze'}
               </h1>
               <p className="text-sm opacity-90">
-                {step === 'scan' 
-                  ? 'Upload or capture your soil health card' 
+                {step === 'scan'
+                  ? 'Upload or capture your soil health card'
                   : 'Review and correct the extracted values'}
               </p>
             </div>
@@ -70,11 +70,10 @@ export default function ScannerPage() {
           <div className="mt-6 flex items-center justify-center space-x-4">
             <div className="flex items-center space-x-2">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  step === 'scan'
+                className={`w-8 h-8 rounded-full flex items-center justify-center ${step === 'scan'
                     ? 'bg-white text-green-600'
                     : 'bg-green-800 text-white'
-                }`}
+                  }`}
               >
                 {step === 'verify' ? <CheckCircle size={18} /> : '1'}
               </div>
@@ -89,11 +88,10 @@ export default function ScannerPage() {
             </div>
             <div className="flex items-center space-x-2">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  step === 'verify'
+                className={`w-8 h-8 rounded-full flex items-center justify-center ${step === 'verify'
                     ? 'bg-white text-green-600'
                     : 'bg-white/30 text-white'
-                }`}
+                  }`}
               >
                 2
               </div>
@@ -144,6 +142,7 @@ export default function ScannerPage() {
           >
             <VerifyForm
               initialValues={extractedData.soilValues}
+              allParameters={extractedData.allParameters}
               token={token}
               onComplete={handleAnalysisComplete}
               extractedText={extractedData.extractedText}

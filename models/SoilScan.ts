@@ -1,11 +1,21 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface ISoilValues {
-  N: number;  // Nitrogen
-  P: number;  // Phosphorus
-  K: number;  // Potassium
-  OC: number; // Organic Carbon
+  N: number;   // Nitrogen
+  P: number;   // Phosphorus
+  K: number;   // Potassium
+  OC: number;  // Organic Carbon
   pH: number;
+}
+
+// Extended parameter for all 12 card entries
+export interface ISoilParameter {
+  srNo: number;
+  parameter: string;
+  testValue: number;
+  unit: string;
+  rating: string;
+  normalLevel: string;
 }
 
 export interface IDeficiency {
@@ -27,6 +37,7 @@ export interface ISoilScan extends Document {
   crop: string;
   farmSize: number;
   soilValues: ISoilValues;
+  allParameters: ISoilParameter[];   // All 12 rows from the card
   deficiencies: IDeficiency[];
   recommendations: IRecommendation[];
   createdAt: Date;
@@ -55,6 +66,14 @@ const SoilScanSchema: Schema = new Schema({
     OC: { type: Number, required: true },
     pH: { type: Number, required: true },
   },
+  allParameters: [{
+    srNo: { type: Number },
+    parameter: { type: String },
+    testValue: { type: Number },
+    unit: { type: String, default: '' },
+    rating: { type: String, default: '' },
+    normalLevel: { type: String, default: '' },
+  }],
   deficiencies: [{
     nutrient: String,
     status: {

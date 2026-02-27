@@ -70,22 +70,29 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     let cleanedText = text
       .replace(/\|/g, ' ')  // Remove table separators
       .replace(/[|│]/g, ' ')  // Remove all pipe characters
-      .replace(/\s{2,}/g, ' ')  // Normalize spaces
-      
+      .replace(/[^\S\r\n]{2,}/g, ' ')  // Normalize spaces but preserve line breaks
+
+      // Normalize common unit styles seen in Soil Health Cards
+      .replace(/kg\s*ha[-–¹]?\b/gi, 'kg/ha')
+      .replace(/kg\s*ha\b/gi, 'kg/ha')
+      .replace(/kg\s*\/\s*ha\b/gi, 'kg/ha')
+      .replace(/mg\s*kg[-–¹]?\b/gi, 'mg/kg')
+      .replace(/mg\s*\/\s*kg\b/gi, 'mg/kg')
+
       // Fix ALL common OCR unit errors (very aggressive)
       .replace(/(?:ds|DS|Ds|dS)\s*[\/]?\s*(?:m|rn|M)/gi, 'dS/m')
       .replace(/(?:kg|Kg|KG|kq|Kq)\s*[\/]?\s*(?:ha|Ha|HA|hao?|Hao?|nao?)/gi, 'kg/ha')
       .replace(/\b(?:Koa|Kaz|koa|kaz)\b/gi, 'kg/ha')
       .replace(/kgha/gi, 'kg/ha')
       .replace(/(?:pPm|PPm|PFm|pfm|prn)/gi, 'ppm')
-      
+
       // Fix percentage OCR errors
       .replace(/(?:0\/0|o\/o|O\/O|0\s*\/\s*0)/gi, '%')
       .replace(/([0-9])\s*%/g, '$1%')
-      
+
       // Fix decimal confusion
       .replace(/([0-9])\s*[.,]\s*([0-9]{1,2})\b/g, '$1.$2')
-      
+
       // Fix OCR decimal loss: "6.39"→"639", "305.00"→"305 00", "0.40"→"040", "0.37"→"037"
       .replace(/\bph\s+639\b/gi, 'ph 6.39')
       .replace(/\b(?:ec|electrical\s*conductivity)\s*0?37\b/gi, 'ec 0.37')
@@ -93,13 +100,13 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       .replace(/\b(\d+)\s+0?0\s+kg/gi, '$1.00 kg')
       .replace(/\borganic\s*carbon\s*(?:\(oc\)\s*)?0?40[°;%\s]*/gi, 'organic carbon 0.40 ')
       .replace(/\b0?37\s*dS/gi, '0.37 dS')
-      
+
       // Fix number/letter confusion
       .replace(/\bO(?=\d)/gi, '0')   // O → 0 before numbers
       .replace(/\bl(?=\d)/gi, '1')   // l → 1 before numbers
       .replace(/\bI(?=\d)/gi, '1')   // I → 1 before numbers
       .replace(/(?<=\d)O\b/gi, '0')  // O → 0 after numbers
-      
+
       // Normalize parameter names (remove parentheses for easier matching)
       .replace(/\(N\)/gi, '')
       .replace(/\(P\)/gi, '')
@@ -110,14 +117,31 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       .replace(/\(B\)/gi, '')
       .replace(/\(Fe\)/gi, '')
       .replace(/\(Mn\)/gi, '')
-      .replace(/\(Cu\)/gi, '');
-    
+      .replace(/\(Cu\)/gi, '')
+
+      // ── SPLIT-DECIMAL RESTORATION ──────────────────────────────────────────
+      // OCR often drops or misplaces decimal points, turning "6.39" into "6 39"
+      // or "0.40" into "0 40". Restore these before any numeric extraction.
+
+      // 1. pH split: "6 39" → "6.39", "8 50" → "8.50"  (single digit . two digits, pH range 3-14)
+      .replace(/\bph([^0-9]{0,8})([3-9])\s+([0-9]{2})\b/gi, (m, gap, a, b) => `ph${gap}${a}.${b}`)
+
+      // 2. OC split near "%": "0 40 %" → "0.40 %", "0 51" → "0.51"
+      .replace(/\b0\s+([1-9][0-9])\s*(%|ppm|\b)/g, '0.$1$2')
+
+      // 3. Large-number decimal split: "305 00" → "305.00", "69 00" → "69.00"
+      .replace(/\b([1-9][0-9]{1,2})\s+0{1,2}\b(?!\s*[-–])/g, '$1.00')
+
+      // 4. General single-digit + two-digit decimal near common units
+      //    e.g. "6 20 ppm" → "6.20 ppm", "2 21 ppm" → "2.21 ppm"
+      .replace(/\b([0-9])\s+([0-9]{2})\s+(ppm|kg\/ha|dS\/m|%)/g, '$1.$2 $3');
+
     const lines = cleanedText.split('\n').filter(line => line.trim().length > 2);
-    
+
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/8bee8950-c4a2-4a3d-a284-4fa207030bef',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Scanner.tsx:intelligentExtraction',message:'OCR input and lines',data:{rawTextPreview:text.substring(0,600),lineCount:lines.length,linesSample:lines.slice(0,15)},hypothesisId:'H3,H5',timestamp:Date.now()})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/8bee8950-c4a2-4a3d-a284-4fa207030bef', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'Scanner.tsx:intelligentExtraction', message: 'OCR input and lines', data: { rawTextPreview: text.substring(0, 600), lineCount: lines.length, linesSample: lines.slice(0, 15) }, hypothesisId: 'H3,H5', timestamp: Date.now() }) }).catch(() => { });
     // #endregion
-    
+
     const result: IntelligentExtraction = {
       confidence: 'Medium',
       summary: '',
@@ -131,117 +155,292 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     // UNIVERSAL extraction - works for ANY format
     // Define what we're looking for with flexible matching
     const universalParameters = [
-      { 
-        name: 'pH', 
-        keywords: ['ph', 'ph value'],  
-        range: [3, 14], 
+      {
+        name: 'pH',
+        keywords: ['ph', 'ph value'],
+        range: [3, 14],
         unit: '',
         priority: 1  // Higher priority = more important
       },
-      { 
-        name: 'Electrical Conductivity (EC)', 
-        keywords: ['ec', 'electrical conductivity', 'conductivity'],  
-        range: [0, 10], 
+      {
+        name: 'Electrical Conductivity (EC)',
+        keywords: ['ec', 'electrical conductivity', 'conductivity'],
+        range: [0, 10],
         unit: 'dS/m',
         priority: 1
       },
-      { 
-        name: 'Organic Carbon (OC)', 
-        keywords: ['organic carbon', 'organic', 'oc', 'o.c'],  
-        range: [0, 10], 
+      {
+        name: 'Organic Carbon (OC)',
+        keywords: ['organic carbon', 'organic', 'oc', 'o.c'],
+        range: [0, 10],
         unit: '%',
         priority: 1
       },
-      { 
-        name: 'Nitrogen (N)', 
-        keywords: ['available nitrogen', 'nitrogen (n)', 'nitrogen'],  
-        range: [100, 1000], 
+      {
+        name: 'Nitrogen (N)',
+        keywords: ['available nitrogen', 'nitrogen (n)', 'nitrogen'],
+        range: [5, 1500],
         unit: 'kg/ha',
         priority: 2
       },
-      { 
-        name: 'Phosphorus (P)', 
-        keywords: ['available phosphorus', 'phosphorus (p)', 'phosphorus'],  
-        range: [5, 200], 
+      {
+        name: 'Phosphorus (P)',
+        keywords: ['available phosphorus', 'phosphorus (p)', 'phosphorus'],
+        range: [2, 400],
         unit: 'kg/ha',
         priority: 2
       },
-      { 
-        name: 'Potassium (K)', 
-        keywords: ['available potassium', 'potassium (k)', 'potassium'],  
-        range: [50, 500], 
+      {
+        name: 'Potassium (K)',
+        keywords: ['available potassium', 'potassium (k)', 'potassium'],
+        range: [5, 1500],
         unit: 'kg/ha',
         priority: 2
       },
-      { 
-        name: 'Sulphur (S)', 
-        keywords: ['available sulphur', 'sulphur', 'sulfur', 'available sulfur'],  
-        range: [5, 100], 
+      {
+        name: 'Sulphur (S)',
+        keywords: ['available sulphur', 'sulphur', 'sulfur', 'available sulfur'],
+        range: [5, 100],
         unit: 'ppm',
         priority: 3
       },
-      { 
-        name: 'Zinc (Zn)', 
-        keywords: ['available zinc', 'zinc', 'zn'],  
-        range: [0.5, 50], 
+      {
+        name: 'Zinc (Zn)',
+        keywords: ['available zinc', 'zinc', 'zn'],
+        range: [0.5, 50],
         unit: 'ppm',
         priority: 3
       },
-      { 
-        name: 'Boron (B)', 
-        keywords: ['available boron', 'boron'],  
-        range: [0.2, 10], 
+      {
+        name: 'Boron (B)',
+        keywords: ['available boron', 'boron'],
+        range: [0.2, 10],
         unit: 'ppm',
         priority: 3
       },
-      { 
-        name: 'Iron (Fe)', 
-        keywords: ['available iron', 'iron', 'fe'],  
-        range: [5, 200], 
+      {
+        name: 'Iron (Fe)',
+        keywords: ['available iron', 'iron', 'fe'],
+        range: [2, 400],
         unit: 'ppm',
         priority: 3
       },
-      { 
-        name: 'Manganese (Mn)', 
-        keywords: ['available manganese', 'manganese', 'mn'],  
-        range: [2, 100], 
+      {
+        name: 'Manganese (Mn)',
+        keywords: ['available manganese', 'manganese', 'mn'],
+        range: [2, 100],
         unit: 'ppm',
         priority: 3
       },
-      { 
-        name: 'Copper (Cu)', 
-        keywords: ['available copper', 'copper', 'cu'],  
-        range: [0.5, 50], 
+      {
+        name: 'Copper (Cu)',
+        keywords: ['available copper', 'copper', 'cu'],
+        range: [0.5, 50],
         unit: 'ppm',
         priority: 3
       },
     ];
 
+    const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const getKeywordRegex = (keyword: string): RegExp => {
+      const normalized = keyword.trim().toLowerCase();
+      if (normalized === 'ph' || normalized === 'ph value') return /\bp\s*\.?\s*h(?:\s*value)?\b/i;
+      if (normalized === 'ec') return /\be\s*\.?\s*c\b/i;
+      if (normalized === 'oc' || normalized === 'o.c') return /\bo\s*\.?\s*c\b/i;
+      const escaped = escapeRegex(normalized).replace(/\s+/g, '\\s+');
+      return new RegExp(`\\b${escaped}\\b`, 'i');
+    };
+    const isRangeCandidate = (text: string, start: number, length: number): boolean => {
+      const left = text.slice(Math.max(0, start - 2), start);
+      const right = text.slice(start + length, Math.min(text.length, start + length + 3));
+      return /[-–><]/.test(left) || /^(\s*[-–]|\/)/.test(right);
+    };
+
+    const normalizeLabel = (value: string) => value.toLowerCase().replace(/[^a-z]/g, ' ').replace(/\s+/g, ' ').trim();
+    const normalizeTight = (value: string) => value.toLowerCase().replace(/[^a-z]/g, '');
+
+    // ROW-AWARE QUICK PASS: when parameter is on one line/column and value on the next
+    const quickValues: Record<string, { value: string; unit?: string }> = {};
+    for (let i = 0; i < lines.length; i++) {
+      const current = lines[i].trim();
+      const norm = normalizeLabel(current);
+      const normTight = normalizeTight(current);
+      const matchedParam = universalParameters.find(p => {
+        const target = normalizeLabel(p.name);
+        const targetTight = normalizeTight(p.name);
+        const keywordHit = p.keywords.some(k => {
+          const nk = normalizeLabel(k);
+          const nkt = normalizeTight(k);
+          return norm.includes(nk) || normTight.includes(nkt);
+        });
+        return norm.includes(target) || normTight.includes(targetTight) || keywordHit;
+      });
+      if (!matchedParam) continue;
+
+      const searchTexts = [lines[i], lines[i + 1] || '', lines[i + 2] || ''].join(' ');
+      const numberRegex = /\b\d+\.?\d*\b/g;
+      let m;
+      let best: { val: string; idx: number; score: number } | null = null;
+      const normalLevelPos = searchTexts.toLowerCase().indexOf('normal level');
+      const preferDecimal = matchedParam.name === 'pH' || matchedParam.name.includes('(EC)') || matchedParam.name.includes('(OC)');
+
+      // Pre-compute: position of the first rating word in searchTexts
+      // Any number AFTER this position is in the Normal Level column, not Test Value
+      const ratingWords = ['acidic', 'alkaline', 'neutral', 'high', 'low', 'medium', 'sufficient', 'normal', 'deficient', 'critical'];
+      const lowerSearch = searchTexts.toLowerCase();
+      const firstRatingPos = Math.min(
+        ...ratingWords.map(w => { const p = lowerSearch.indexOf(w); return p === -1 ? Infinity : p; })
+      );
+
+      let serialSkipped = false; // Track: have we already skipped the row serial-number?
+
+      while ((m = numberRegex.exec(searchTexts)) !== null) {
+        const val = m[0];
+        const num = parseFloat(val);
+        if (isNaN(num)) continue;
+        if (num < matchedParam.range[0] || num > matchedParam.range[1]) continue;
+        if (isRangeCandidate(searchTexts, m.index, val.length)) continue;
+
+        // FIX: Skip the row serial number.
+        // Government Soil Health Cards start every data row with a serial number (1-12).
+        // The serial number is the first integer 1-12 encountered in the row.
+        if (!serialSkipped && Number.isInteger(num) && num >= 1 && num <= 12) {
+          serialSkipped = true;
+          continue;
+        }
+        serialSkipped = true;
+
+        // FIX: A number appearing AFTER a rating word (High/Low/Acidic/etc.) is in
+        // the Normal Level column, not the Test Value column.
+        const isAfterRating = isFinite(firstRatingPos) && m.index > firstRatingPos;
+
+        // FIX: "7, Neutral" pattern – number followed immediately by ", word"
+        const afterNum = searchTexts.slice(m.index + val.length, m.index + val.length + 8);
+        const followedByCommaWord = /^\s*,\s*[A-Za-z]/.test(afterNum);
+
+        let score = 0;
+        if (preferDecimal && val.includes('.')) score += 2;
+        if (normalLevelPos !== -1 && m.index >= normalLevelPos) score -= 4;
+        if (isAfterRating) score -= 11;
+        if (followedByCommaWord) score -= 12;
+        score -= m.index / 50;
+
+        if (!best || score > best.score) best = { val, idx: m.index, score };
+      }
+
+      if (best && !quickValues[matchedParam.name]) {
+        quickValues[matchedParam.name] = { value: best.val, unit: matchedParam.unit };
+      }
+    }
+
+    // ESSENTIAL KEYWORDS FULL-TEXT PASS (pre-seed for PH/EC/OC/P)
+    const essentialDefs: Array<{
+      key: string;
+      unit?: string;
+      range: [number, number];
+      patterns: RegExp[];
+    }> = [
+        {
+          key: 'pH',
+          unit: '',
+          range: [3, 14],
+          patterns: [
+            /\bp\s*\.?\s*h[^0-9]{0,12}([0-9]+(?:\.[0-9]+)?)/gi,
+            /([0-9]+(?:\.[0-9]+)?)\s*(?:ph)\b/gi,
+          ],
+        },
+        {
+          key: 'Electrical Conductivity (EC)',
+          unit: 'dS/m',
+          range: [0, 10],
+          patterns: [
+            /\bec[^0-9]{0,12}([0-9]+(?:\.[0-9]+)?)/gi,
+            /([0-9]+(?:\.[0-9]+)?)\s*(?:ec|electrical\s*conductivity)\b/gi,
+          ],
+        },
+        {
+          key: 'Organic Carbon (OC)',
+          unit: '%',
+          range: [0, 10],
+          patterns: [
+            /\borganic\s*carbon[^0-9]{0,12}([0-9]+(?:\.[0-9]+)?)/gi,
+            /([0-9]+(?:\.[0-9]+)?)\s*(?:oc|organic\s*carbon)\b/gi,
+          ],
+        },
+        {
+          key: 'Phosphorus (P)',
+          unit: 'kg/ha',
+          range: [2, 400],
+          patterns: [
+            /\bphosphorus[^0-9]{0,12}([0-9]+(?:\.[0-9]+)?)/gi,
+            /([0-9]+(?:\.[0-9]+)?)\s*phosphorus\b/gi,
+          ],
+        },
+      ];
+
+    const pickBestFromMatches = (matches: Array<{ val: string; pos: number }>, range: [number, number]) => {
+      let best: { val: string; score: number } | null = null;
+      const anyDecimal = matches.some(m => m.val.includes('.'));
+      for (const m of matches) {
+        const num = parseFloat(m.val);
+        if (isNaN(num)) continue;
+        if (num < range[0] || num > range[1]) continue;
+        let score = 0;
+        if (m.val.includes('.')) score += 3;
+        if (anyDecimal && !m.val.includes('.')) score -= 3;
+        score -= m.pos / 200; // slight preference for earlier occurrences
+        if (!best || score > best.score) best = { val: m.val, score };
+      }
+      return best?.val;
+    };
+
+    const fullText = lines.join('\n');
+
+    essentialDefs.forEach(def => {
+      if (result.soilParameters[def.key]) return;
+      if (quickValues[def.key]) return;
+      const matches: Array<{ val: string; pos: number }> = [];
+      def.patterns.forEach(rx => {
+        let m;
+        while ((m = rx.exec(fullText)) !== null) {
+          if (m[1]) matches.push({ val: m[1], pos: m.index });
+        }
+      });
+      const chosen = pickBestFromMatches(matches, def.range);
+      if (chosen) {
+        result.soilParameters[def.key] = { value: chosen, unit: def.unit };
+      }
+    });
+
     // SMART EXTRACTION: Find keyword, extract nearby number
     universalParameters.forEach(({ name, keywords, range, unit, priority }) => {
       if (result.soilParameters[name]) return; // Already found
+      if (quickValues[name]) {
+        result.soilParameters[name] = quickValues[name];
+        return;
+      }
 
       // Search through all lines
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        const lowerLine = line.toLowerCase();
-        
+
         // Check if this line contains ANY of our keywords
         const matchedKeyword = keywords.find(keyword => {
-          const keywordLower = keyword.toLowerCase();
-          return lowerLine.includes(keywordLower);
+          return getKeywordRegex(keyword).test(line);
         });
-        
+
         if (!matchedKeyword) continue;
 
         // Extract ALL numbers from this line and next 2 lines (context window)
         const contextLines = [line, lines[i + 1] || '', lines[i + 2] || ''];
         const contextText = contextLines.join(' ');
-        
+
         // Find keyword position - use number CLOSEST TO (immediately after) keyword, not first-in-range
-        const kwPos = lowerLine.indexOf(matchedKeyword.toLowerCase());
-        const keywordEndInContext = kwPos + matchedKeyword.length; // position right after keyword in line (line is start of context)
-        
+        const keywordMatch = line.match(getKeywordRegex(matchedKeyword));
+        const keywordEndInContext = keywordMatch && typeof keywordMatch.index === 'number'
+          ? keywordMatch.index + keywordMatch[0].length
+          : 0; // position right after keyword in line (line is start of context)
+
         // Find all numbers with their positions in contextText
         const numberRegex = /\b\d+\.?\d*\b/g;
         const numberMatches: { value: string; index: number }[] = [];
@@ -251,57 +450,119 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
         }
         if (numberMatches.length === 0) continue;
 
-        // Prefer number immediately after keyword; fallback to first in valid range
         const numbers = numberMatches.map(nm => nm.value);
         let selectedIdx = -1;
-        const afterKeyword = numberMatches.filter(nm => nm.index >= keywordEndInContext - 5);
-        for (const cand of afterKeyword.length > 0 ? afterKeyword : numberMatches) {
+        let bestScore = Number.NEGATIVE_INFINITY;
+        const normalLevelPos = contextText.toLowerCase().indexOf('normal level');
+        const preferDecimal = name === 'pH' || name.includes('(EC)') || name.includes('(OC)');
+        const anyDecimal = numberMatches.some(nm => nm.value.includes('.'));
+
+        for (let j = 0; j < numberMatches.length; j++) {
+          const cand = numberMatches[j];
           const num = parseFloat(cand.value);
           if (isNaN(num)) continue;
-          if (numbers.indexOf(cand.value) === 0 && num < 20 && Number.isInteger(num)) continue; // Skip S.No
-          if (num >= range[0] && num <= range[1]) {
-            selectedIdx = numberMatches.indexOf(cand);
-            break;
+          if (j === 0 && num < 20 && Number.isInteger(num)) continue; // Skip S.No.
+          if (num < range[0] || num > range[1]) continue;
+
+          let score = 0;
+          const isAfterKeyword = cand.index >= keywordEndInContext - 3;
+          const isSameLine = cand.index < line.length + 2;
+          const distance = Math.abs(cand.index - keywordEndInContext);
+          const isRangeValue = isRangeCandidate(contextText, cand.index, cand.value.length);
+          const followedByComma = /,/.test(contextText.slice(cand.index, cand.index + cand.value.length + 2));
+          const precededByComma = /,/.test(contextText.slice(Math.max(0, cand.index - 2), cand.index));
+          const partOfRangePattern = /\b\d+\.?\d*\s*[-–]\s*\d/.test(contextText.slice(Math.max(0, cand.index - 2), cand.index + cand.value.length + 6));
+
+          // FIX 1: "7, Neutral" pattern — number followed by comma+word is a Normal Level label, not a test value
+          const afterCand = contextText.slice(cand.index + cand.value.length, cand.index + cand.value.length + 8);
+          const followedByCommaWord = /^\s*,\s*[A-Za-z]/.test(afterCand);
+
+          // FIX 2: Number appearing AFTER a rating word (Acidic/High/Low/etc.) is in the Normal Level column
+          const beforeCand = contextText.slice(0, cand.index).toLowerCase();
+          const ratingKeywords = ['acidic', 'alkaline', 'neutral', 'high', 'low', 'medium', 'sufficient', 'normal', 'deficient', 'critical'];
+          const lastRatingIdx = Math.max(...ratingKeywords.map(w => beforeCand.lastIndexOf(w)));
+          const isAfterRatingWord = lastRatingIdx !== -1 && lastRatingIdx > keywordEndInContext;
+
+          // FIX 3: OC and pH MUST be decimals (0.40%, 6.39) — penalise integers heavily
+          const mustBeDecimal = name === 'pH' || name.includes('(OC)');
+
+          // FIX 4: "> 10 ppm" — a number preceded by ">" is a threshold in the Normal Level column
+          const precededByGT = />\s*$/.test(contextText.slice(Math.max(0, cand.index - 4), cand.index));
+
+          if (isAfterKeyword) score += 6;
+          if (isSameLine) score += 5;
+          if (preferDecimal && cand.value.includes('.')) score += 4;
+          if (anyDecimal && !cand.value.includes('.')) score -= 5;
+          if (followedByComma) score -= 4;
+          if (followedByCommaWord) score -= 12;      // FIX 1 (strong)
+          if (precededByComma) score -= 3;
+          if (partOfRangePattern) score -= 6;
+          if (isAfterRatingWord) score -= 11;         // FIX 2 (strong)
+          if (mustBeDecimal && !cand.value.includes('.')) score -= 10;  // FIX 3
+          if (precededByGT) score -= 10;             // FIX 4
+          if (distance > 30) score -= 5;
+          if (normalLevelPos !== -1 && cand.index >= normalLevelPos) score -= 6;
+          if (isRangeValue) score -= 8;
+          score -= distance / 25;
+
+          if (score > bestScore) {
+            bestScore = score;
+            selectedIdx = j;
           }
         }
-        if (selectedIdx < 0) {
-          for (let j = 0; j < numbers.length; j++) {
-            const num = parseFloat(numbers[j]);
-            if (isNaN(num)) continue;
-            if (j === 0 && num < 20 && Number.isInteger(num)) continue;
-            if (num >= range[0] && num <= range[1]) {
-              selectedIdx = j;
-              break;
-            }
-          }
-        }
+
         if (selectedIdx < 0) continue;
         const j = selectedIdx;
 
         {
           const num = parseFloat(numbers[j]);
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/8bee8950-c4a2-4a3d-a284-4fa207030bef',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Scanner.tsx:paramMatch',message:'Parameter match',data:{param:name,matchedKeyword,lineIdx:i,line,contextText:contextText.substring(0,150),numbers,selectedIdx:j,selectedValue:numbers[j],range},hypothesisId:'H1,H2,H4',timestamp:Date.now()})}).catch(()=>{});
-            // #endregion
-            // Extract rating from the same line
-            let rating = '';
-            const combinedContext = contextText.toLowerCase();
-            if (/\b(high|adequate|sufficient|normal|good)\b/i.test(combinedContext)) {
-              rating = 'High/Normal';
-            } else if (/\b(medium|moderate)\b/i.test(combinedContext)) {
-              rating = 'Medium';
-            } else if (/\b(low|deficient|critical|poor)\b/i.test(combinedContext)) {
-              rating = 'Low/Deficient';
-            }
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/8bee8950-c4a2-4a3d-a284-4fa207030bef', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'Scanner.tsx:paramMatch', message: 'Parameter match', data: { param: name, matchedKeyword, lineIdx: i, line, contextText: contextText.substring(0, 150), numbers, selectedIdx: j, selectedValue: numbers[j], range }, hypothesisId: 'H1,H2,H4', timestamp: Date.now() }) }).catch(() => { });
+          // #endregion
+          // Extract rating: look for rating word between test-value and end of line only
+          // to avoid matching rating words from the NORMAL LEVEL column
+          let rating = '';
+          // Only look at text between keyword and the normal level start (or end of first line)
+          const ratingSearchEnd = normalLevelPos !== -1 ? normalLevelPos : line.length + 80;
+          const ratingZone = contextText.slice(keywordEndInContext, ratingSearchEnd).toLowerCase();
+          if (/\bacidic\b/.test(ratingZone)) rating = 'Acidic';
+          else if (/\balkaline\b/.test(ratingZone)) rating = 'Alkaline';
+          else if (/\bneutral\b/.test(ratingZone)) rating = 'Neutral';
+          else if (/\bsufficient\b/.test(ratingZone)) rating = 'Sufficient';
+          else if (/\b(high|adequate|good)\b/.test(ratingZone)) rating = 'High';
+          else if (/\b(medium|moderate)\b/.test(ratingZone)) rating = 'Medium';
+          else if (/\b(low|deficient|poor)\b/.test(ratingZone)) rating = 'Low';
+          else if (/\bcritical\b/.test(ratingZone)) rating = 'Critical';
+          else if (/\bnormal\b/.test(ratingZone)) rating = 'Normal';
 
-            result.soilParameters[name] = {
-              value: numbers[j],
-              unit: unit,
-              rating: rating || undefined
-            };
-            break; // Found valid value, exit for-loop and move to next parameter
+          result.soilParameters[name] = {
+            value: numbers[j],
+            unit: unit,
+            rating: rating || undefined
+          };
+          break; // Found valid value, exit for-loop and move to next parameter
         }
       }
+    });
+
+    // FINAL FALLBACK: loose row regex over full text for key essentials
+    const fallbackPairs: Array<[string, RegExp, [number, number], string | undefined]> = [
+      ['pH', /\bp\s*\.?\s*h[^0-9]{0,6}([0-9]+(?:\.[0-9]+)?)/i, [3, 14], ''],
+      ['Electrical Conductivity (EC)', /\bec[^0-9]{0,6}([0-9]+(?:\.[0-9]+)?)/i, [0, 10], 'dS/m'],
+      ['Organic Carbon (OC)', /\borganic\s*carbon[^0-9]{0,6}([0-9]+(?:\.[0-9]+)?)/i, [0, 10], '%'],
+      ['Phosphorus (P)', /\bphosphorus[^0-9]{0,6}([0-9]+(?:\.[0-9]+)?)/i, [5, 200], 'kg/ha'],
+    ];
+    fallbackPairs.forEach(([key, regex, rng, unitVal]) => {
+      if (result.soilParameters[key]) return;
+      const m = regex.exec(fullText);
+      if (!m || !m[1]) return;
+      const num = parseFloat(m[1]);
+      if (isNaN(num)) return;
+      if (num < rng[0] || num > rng[1]) return;
+      // avoid picking normal-level ranges containing '-' right after the match
+      const tail = fullText.slice(regex.lastIndex, regex.lastIndex + 8);
+      if (/-/.test(tail)) return;
+      result.soilParameters[key] = { value: m[1], unit: unitVal };
     });
 
     // UNIVERSAL FARMER DETAILS EXTRACTION - Flexible keyword matching
@@ -317,7 +578,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       for (const line of lines) {
         const lowerLine = line.toLowerCase();
         const matched = keywords.some(kw => lowerLine.includes(kw));
-        
+
         if (matched) {
           // Extract the value after the keyword
           let value = line;
@@ -325,10 +586,10 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
             const kwRegex = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
             value = value.replace(kwRegex, '');
           });
-          
+
           // Clean up the value
           value = value.replace(/[:|-]/g, '').trim();
-          
+
           // Remove stop words
           stopWords.forEach(sw => {
             const stopRegex = new RegExp(sw, 'i');
@@ -336,7 +597,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
               value = value.split(stopRegex)[0].trim();
             }
           });
-          
+
           // Special handling for mobile numbers
           if (key === 'Mobile Number') {
             const mobileMatch = value.match(/\d{10}/);
@@ -365,23 +626,23 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       for (const line of lines) {
         const lowerLine = line.toLowerCase();
         const matched = keywords.some(kw => lowerLine.includes(kw));
-        
+
         if (matched) {
           let value = line;
           keywords.forEach(kw => {
             const kwRegex = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
             value = value.replace(kwRegex, '');
           });
-          
+
           value = value.replace(/[:|-]/g, '').trim();
-          
+
           stopWords.forEach(sw => {
             const stopRegex = new RegExp(sw, 'i');
             if (stopRegex.test(value)) {
               value = value.split(stopRegex)[0].trim();
             }
           });
-          
+
           // Special handling for pincode
           if (key === 'Pincode') {
             const pincodeMatch = value.match(/\d{6}/);
@@ -401,8 +662,8 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     if (/clay|loamy|sandy|silt/i.test(cleanedText)) {
       const soilTypeMatch = cleanedText.match(/(?:soil type|texture)[\s:]*([a-z\s]+?)(?:\n|$)/i);
       if (soilTypeMatch) {
-        result.soilParameters['Soil Type'] = { 
-          value: soilTypeMatch[1].trim() 
+        result.soilParameters['Soil Type'] = {
+          value: soilTypeMatch[1].trim()
         };
       }
     }
@@ -420,7 +681,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     // Determine confidence based on data quality
     const paramCount = Object.keys(result.soilParameters).length;
     const farmerInfoCount = Object.keys(result.farmerDetails || {}).length;
-    
+
     if (paramCount >= 5 && farmerInfoCount > 0) {
       result.confidence = 'High';
     } else if (paramCount >= 3) {
@@ -430,7 +691,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     }
 
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/8bee8950-c4a2-4a3d-a284-4fa207030bef',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Scanner.tsx:extractionComplete',message:'Final extracted soil parameters',data:{soilParameters:result.soilParameters},hypothesisId:'H1,H4',timestamp:Date.now()})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/8bee8950-c4a2-4a3d-a284-4fa207030bef', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'Scanner.tsx:extractionComplete', message: 'Final extracted soil parameters', data: { soilParameters: result.soilParameters }, hypothesisId: 'H1,H4', timestamp: Date.now() }) }).catch(() => { });
     // #endregion
     // Generate AI-like summary
     result.summary = `I've analyzed the soil health card and extracted ${paramCount} soil parameter${paramCount !== 1 ? 's' : ''}, ` +
@@ -446,12 +707,12 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     setOcrProgress(0);
     setExtractedText('');
     setShowAIAnalysis(false);
-    
+
     try {
       // METHOD 1: Try Vision AI first (Most Accurate - 95%+ success rate)
       setOcrProgress(10);
       console.log('Attempting Vision AI extraction...');
-      
+
       const visionResponse = await fetch('/api/scan/vision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -462,12 +723,12 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
 
       if (visionResponse.ok) {
         const visionData = await visionResponse.json();
-        
+
         if (visionData.success && visionData.data) {
           console.log('✅ Vision AI extraction successful!');
-          setExtractedText(`[Vision AI Extraction - ${visionData.model}]\n\nConfidence: ${visionData.data.confidence}\n\n` + 
+          setExtractedText(`[Vision AI Extraction - ${visionData.model}]\n\nConfidence: ${visionData.data.confidence}\n\n` +
             JSON.stringify(visionData.data, null, 2));
-          
+
           // Use Vision AI data directly (already in correct format)
           setIntelligentData({
             ...visionData.data,
@@ -485,7 +746,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
 
       // Preprocess image for better OCR (increases contrast, converts to grayscale)
       const preprocessedImage = await preprocessImageForOCR(imageData);
-      
+
       setOcrProgress(30);
 
       // Create Tesseract worker with optimized settings
@@ -512,12 +773,12 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
 
       // Perform intelligent extraction
       const intelligentData = intelligentExtraction(text);
-      
+
       // Adjust confidence based on OCR quality
       if (confidence && confidence < 60) {
         intelligentData.confidence = 'Low';
       }
-      
+
       setIntelligentData(intelligentData);
       setShowAIAnalysis(true);
       setOcrProgress(100);
@@ -538,21 +799,21 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d')!;
-        
+
         // Increase resolution for better OCR
         const scale = 2;
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
-        
+
         // Draw with smoothing
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
+
         // Get image data for processing
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
-        
+
         // Apply contrast enhancement and grayscale conversion
         for (let i = 0; i < data.length; i += 4) {
           // Convert to grayscale
@@ -560,15 +821,15 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
           const g = data[i + 1];
           const b = data[i + 2];
           const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-          
+
           // Increase contrast (simple threshold)
           const enhanced = gray > 128 ? Math.min(255, gray * 1.2) : Math.max(0, gray * 0.8);
-          
+
           data[i] = enhanced;
           data[i + 1] = enhanced;
           data[i + 2] = enhanced;
         }
-        
+
         ctx.putImageData(imageData, 0, 0);
         resolve(canvas.toDataURL('image/png'));
       };
@@ -630,7 +891,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
     // Map the selected parameters to app format
     Object.entries(selectedData.soilParameters).forEach(([key, param]: [string, any]) => {
       const value = parseFloat(param.value);
-      
+
       if (key.includes('pH')) soilValues.pH = value;
       else if (key.includes('Nitrogen')) soilValues.N = value;
       else if (key.includes('Phosphorus')) soilValues.P = value;
@@ -865,7 +1126,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
               </div>
             </div>
           ) : (
-            <AIAnalysisDisplay 
+            <AIAnalysisDisplay
               data={intelligentData}
               onProceed={handleAIProceed}
             />

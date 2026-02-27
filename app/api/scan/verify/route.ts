@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const token = authHeader.split(' ')[1];
     const decoded = verifyToken(token);
 
-    const { crop, farmSize, soilValues } = await req.json();
+    const { crop, farmSize, soilValues, allParameters } = await req.json();
 
     // Validate input
     if (!crop || !farmSize || !soilValues) {
@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
       crop,
       farmSize,
       soilValues,
+      allParameters: allParameters || [],
       deficiencies,
       recommendations,
     });

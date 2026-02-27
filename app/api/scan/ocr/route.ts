@@ -46,11 +46,12 @@ export async function POST(req: NextRequest) {
 function extractNutrientValues(text: string): any {
   // Regular expressions to extract nutrient values
   const patterns = {
-    N: /nitrogen[:\s]*([0-9]+\.?[0-9]*)/i,
-    P: /phosphorus[:\s]*([0-9]+\.?[0-9]*)/i,
-    K: /potassium[:\s]*([0-9]+\.?[0-9]*)/i,
-    OC: /organic[:\s]*carbon[:\s]*([0-9]+\.?[0-9]*)/i,
-    pH: /ph[:\s]*([0-9]+\.?[0-9]*)/i,
+    N: /\bnitrogen\b[:\s-]*([0-9]+\.?[0-9]*)/i,
+    P: /\bphosphorus\b[:\s-]*([0-9]+\.?[0-9]*)/i,
+    K: /\bpotassium\b[:\s-]*([0-9]+\.?[0-9]*)/i,
+    OC: /(?:\borganic\s*carbon\b|\bo\.?\s*c\b)[:\s-]*([0-9]+\.?[0-9]*)/i,
+    pH: /\bp\s*\.?\s*h\b[:\s-]*([0-9]+\.?[0-9]*)/i,
+    EC: /(?:\be\s*\.?\s*c\b|\belectrical\s*conductivity\b)[:\s-]*([0-9]+\.?[0-9]*)/i,
   };
 
   const values: any = {
@@ -59,6 +60,7 @@ function extractNutrientValues(text: string): any {
     K: 0,
     OC: 0,
     pH: 0,
+    EC: 0,
   };
 
   // Try to extract each nutrient value
@@ -71,10 +73,12 @@ function extractNutrientValues(text: string): any {
 
   // Alternative patterns for common formats
   const altPatterns = {
-    N: /N[:\s]*([0-9]+\.?[0-9]*)/,
-    P: /P[:\s]*([0-9]+\.?[0-9]*)/,
-    K: /K[:\s]*([0-9]+\.?[0-9]*)/,
-    OC: /OC[:\s]*([0-9]+\.?[0-9]*)/,
+    N: /\bN\b[:\s-]*([0-9]+\.?[0-9]*)/,
+    P: /\bP\b[:\s-]*([0-9]+\.?[0-9]*)/,
+    K: /\bK\b[:\s-]*([0-9]+\.?[0-9]*)/,
+    OC: /\bO\.?\s*C\b[:\s-]*([0-9]+\.?[0-9]*)/i,
+    pH: /\bp\s*\.?\s*h\b[:\s-]*([0-9]+\.?[0-9]*)/i,
+    EC: /\bE\.?\s*C\b[:\s-]*([0-9]+\.?[0-9]*)/i,
   };
 
   for (const [key, pattern] of Object.entries(altPatterns)) {
