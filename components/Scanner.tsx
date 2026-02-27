@@ -567,30 +567,47 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
 
     // UNIVERSAL FARMER DETAILS EXTRACTION - Flexible keyword matching
     const farmerKeywords = [
-      { key: 'Farmer Name', keywords: ['farmer name', 'name', 'grower', 'cultivator'], stopWords: ['father', 'village', 'district'] },
-      { key: 'Father Name', keywords: ["father's husband name", 'father', 's/o', 'son of', 'f/o', 'husband'], stopWords: ['village', 'district'] },
-      { key: 'Sample Number', keywords: ['sample', 'sample number', 'registration', 'reg', 'card number'], stopWords: [] },
-      { key: 'Mobile Number', keywords: ['mobile no', 'mobile', 'phone', 'contact'], stopWords: [] },
-      { key: 'Survey Number', keywords: ['survey no', 'survey', 'khasra', 'gat no'], stopWords: [] },
+      { key: 'Farmer Name', keywords: ['name of farmer', 'farmer name', 'grower name', 'cultivator', 'grower', 'name'], stopWords: ['father', 'husband', 'village', 'district'] },
+      { key: 'Father Name', keywords: ["father's/husband name", "father's / husband name", "father's husband name", "father's name", "husband's name", "father name", "husband name", "father's", 'father', 'husband', 's/o', 'd/o', 'w/o', 'son of', 'f/o'], stopWords: ['village', 'district'] },
+      { key: 'Sample Number', keywords: ['sample number', 'sample no', 'registration no', 'card number', 'sample', 'registration', 'reg'], stopWords: [] },
+      { key: 'Mobile Number', keywords: ['mobile number', 'mobile no.', 'mobile no', 'phone number', 'contact number', 'mobile', 'phone', 'contact'], stopWords: [] },
+      { key: 'Survey Number', keywords: ['survey no., khasra no./ dag no.', 'survey no., khasra no.', 'survey no/khasra no', 'survey number', 'survey no', 'khasra no', 'dag no', 'gat no', 'survey', 'khasra', 'dag', 'gat'], stopWords: [] },
     ];
 
     farmerKeywords.forEach(({ key, keywords, stopWords }) => {
       for (const line of lines) {
         const lowerLine = line.toLowerCase();
-        const matched = keywords.some(kw => lowerLine.includes(kw));
+        // Find the longest/first matching keyword
+        const matchedKw = keywords.find(kw => lowerLine.includes(kw));
 
-        if (matched) {
-          // Extract the value after the keyword
-          let value = line;
+        if (matchedKw) {
+          const kwIdx = lowerLine.indexOf(matchedKw);
+
+          // Prevent generic matches: if a stopWord appears BEFORE the keyword, this is a false match.
+          // Example: 'name' matched in 'father name', but 'father' is a stop word for Farmer Name.
+          const isInvalidMatch = stopWords.some(sw => {
+            const swIdx = lowerLine.indexOf(sw);
+            return swIdx !== -1 && swIdx <= kwIdx;
+          });
+
+          if (isInvalidMatch) continue;
+
+          // Extract the value AFTER the keyword to discard left-column text completely
+          let value = line.substring(kwIdx + matchedKw.length);
+
+          // Clean up any remaining keywords that might be part of the match
           keywords.forEach(kw => {
             const kwRegex = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
             value = value.replace(kwRegex, '');
           });
 
-          // Clean up the value
-          value = value.replace(/[:|-]/g, '').trim();
+          // Aggressively remove leftover label fragments and punctuation at the start
+          value = value.replace(/^(?:'s\b|\bhusband\b|\bname\b|\bno\.?\b|\bdag\b|\bkhasra\b|\bgat\b|[\s:|\-,'\\./_])+/i, '').trim();
 
-          // Remove stop words
+          // Clean up trailing punctuation
+          value = value.replace(/[\s:|\-,'\\./_]+$/, '').trim();
+
+          // Truncate at stop words if another field starts on the same line
           stopWords.forEach(sw => {
             const stopRegex = new RegExp(sw, 'i');
             if (stopRegex.test(value)) {
@@ -605,7 +622,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
               result.farmerDetails![key] = mobileMatch[0];
               break;
             }
-          } else if (value.length > 1 && value.length < 100) {
+          } else if (value.length > 2 && value.length < 100) {
             result.farmerDetails![key] = value;
             break;
           }
@@ -615,26 +632,42 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
 
     // UNIVERSAL LOCATION EXTRACTION - Flexible keyword matching
     const locationKeywords = [
-      { key: 'Village', keywords: ['village', 'vill', 'gram'], stopWords: ['taluk', 'tehsil', 'district'] },
-      { key: 'Taluk/Tehsil', keywords: ['taluk', 'tehsil', 'taluka', 'block'], stopWords: ['district'] },
-      { key: 'District', keywords: ['district', 'dist'], stopWords: ['state', 'pincode'] },
-      { key: 'State', keywords: ['state'], stopWords: ['pincode', 'pin'] },
-      { key: 'Pincode', keywords: ['pincode', 'pin'], stopWords: [] },
+      { key: 'Village', keywords: ['village name', 'village', 'vill', 'gram'], stopWords: ['taluk', 'tehsil', 'mandal', 'district'] },
+      { key: 'Taluk/Tehsil', keywords: ['taluk/tehsil', 'taluka', 'taluk', 'tehsil', 'mandal', 'block'], stopWords: ['district', 'state'] },
+      { key: 'District', keywords: ['district name', 'district', 'dist'], stopWords: ['state', 'pincode', 'pin'] },
+      { key: 'State', keywords: ['state name', 'state'], stopWords: ['pincode', 'pin'] },
+      { key: 'Pincode', keywords: ['pincode', 'pin code', 'pin'], stopWords: [] },
     ];
 
     locationKeywords.forEach(({ key, keywords, stopWords }) => {
       for (const line of lines) {
         const lowerLine = line.toLowerCase();
-        const matched = keywords.some(kw => lowerLine.includes(kw));
+        const matchedKw = keywords.find(kw => lowerLine.includes(kw));
 
-        if (matched) {
-          let value = line;
+        if (matchedKw) {
+          const kwIdx = lowerLine.indexOf(matchedKw);
+
+          // Prevent false matches
+          const isInvalidMatch = stopWords.some(sw => {
+            const swIdx = lowerLine.indexOf(sw);
+            return swIdx !== -1 && swIdx <= kwIdx;
+          });
+
+          if (isInvalidMatch) continue;
+
+          // Extract AFTER the keyword
+          let value = line.substring(kwIdx + matchedKw.length);
+
           keywords.forEach(kw => {
             const kwRegex = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
             value = value.replace(kwRegex, '');
           });
 
-          value = value.replace(/[:|-]/g, '').trim();
+          // Aggressively remove leftover label fragments and punctuation at the start
+          value = value.replace(/^(?:'s\b|\bname\b|\bvillage\b|\bdist(?:rict)?\b|\btaluka?\b|\bmandal\b|\btehsil\b|\bpin(?:code)?\b|[\s:|\-,'\\./_])+/i, '').trim();
+
+          // Clean up trailing punctuation
+          value = value.replace(/[\s:|\-,'\\./_]+$/, '').trim();
 
           stopWords.forEach(sw => {
             const stopRegex = new RegExp(sw, 'i');
@@ -650,7 +683,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
               result.location![key] = pincodeMatch[0];
               break;
             }
-          } else if (value.length > 1 && value.length < 100) {
+          } else if (value.length > 2 && value.length < 100) {
             result.location![key] = value;
             break;
           }
