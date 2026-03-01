@@ -357,17 +357,22 @@ export default function ResultPage() {
             Fertilizer Recommendations
           </h2>
           {scanData.recommendations.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {scanData.recommendations.map((rec: any, index: number) => (
-                <FertilizerCard
-                  key={index}
-                  fertilizer={rec.fertilizer}
-                  quantity={rec.quantity}
-                  unit={rec.unit}
-                  cost={rec.cost}
-                  priority={rec.priority}
-                />
-              ))}
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {scanData.recommendations.map((rec: any, index: number) => (
+                  <FertilizerCard
+                    key={index}
+                    fertilizer={rec.fertilizer}
+                    quantity={rec.quantity}
+                    unit={rec.unit}
+                    cost={rec.cost}
+                    priority={rec.priority}
+                  />
+                ))}
+              </div>
+              <p className="text-sm text-center text-gray-500 italic mt-6">
+                *Prices and availability may vary based on location and seller.
+              </p>
             </div>
           ) : (
             <div className="agriculture-card p-8 text-center">

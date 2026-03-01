@@ -602,7 +602,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
           });
 
           // Aggressively remove leftover label fragments and punctuation at the start
-          value = value.replace(/^(?:'s\b|\bhusband\b|\bname\b|\bno\.?\b|\bdag\b|\bkhasra\b|\bgat\b|[\s:|\-,'\\./_])+/i, '').trim();
+          value = value.replace(/^(?:'s\b|\bhusband\b|\bname\b|\bno\.?\b|\bdag\b|\bkhasra\b|\bgat\b|[\s:|\-,'\\\\./_])+/i, '').trim();
 
           // Clean up trailing punctuation
           value = value.replace(/[\s:|\-,'\\./_]+$/, '').trim();
@@ -664,7 +664,7 @@ export default function Scanner({ onScanComplete, token }: ScannerProps) {
           });
 
           // Aggressively remove leftover label fragments and punctuation at the start
-          value = value.replace(/^(?:'s\b|\bname\b|\bvillage\b|\bdist(?:rict)?\b|\btaluka?\b|\bmandal\b|\btehsil\b|\bpin(?:code)?\b|[\s:|\-,'\\./_])+/i, '').trim();
+          value = value.replace(/^(?:'s\b|\bname\b|\bvillage\b|\bdist(?:rict)?\b|\btaluka?\b|\bmandal\b|\btehsil\b|\bpin(?:code)?\b|[\s:|\-,'\\\\./_])+/i, '').trim();
 
           // Clean up trailing punctuation
           value = value.replace(/[\s:|\-,'\\./_]+$/, '').trim();

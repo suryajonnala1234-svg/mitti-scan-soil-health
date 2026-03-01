@@ -30,11 +30,11 @@ interface AIAnalysisProps {
 }
 
 export default function AIAnalysisDisplay({ data, onProceed }: AIAnalysisProps) {
-  const [selectedParams, setSelectedParams] = React.useState<{[key: string]: boolean}>({});
+  const [selectedParams, setSelectedParams] = React.useState<{ [key: string]: boolean }>({});
 
   React.useEffect(() => {
     // Auto-select all parameters
-    const selected: {[key: string]: boolean} = {};
+    const selected: { [key: string]: boolean } = {};
     Object.keys(data.soilParameters).forEach(key => {
       selected[key] = true;
     });
@@ -92,11 +92,10 @@ export default function AIAnalysisDisplay({ data, onProceed }: AIAnalysisProps) 
             </h2>
             <p className="text-gray-700 mb-3">{data.summary}</p>
             <div className="flex items-center gap-2 text-sm">
-              <div className={`px-3 py-1 rounded-full ${
-                data.confidence === 'High' ? 'bg-green-100 text-green-700' :
-                data.confidence === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
-                'bg-orange-100 text-orange-700'
-              }`}>
+              <div className={`px-3 py-1 rounded-full ${data.confidence === 'High' ? 'bg-green-100 text-green-700' :
+                  data.confidence === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-orange-100 text-orange-700'
+                }`}>
                 Confidence: {data.confidence}
               </div>
             </div>
@@ -122,7 +121,7 @@ export default function AIAnalysisDisplay({ data, onProceed }: AIAnalysisProps) 
                 <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-600 font-medium">{key}</p>
-                  <p className="text-sm text-gray-800 font-semibold truncate">{value}</p>
+                  <p className="text-sm text-gray-800 font-semibold break-words">{value}</p>
                 </div>
               </div>
             ))}
@@ -148,7 +147,7 @@ export default function AIAnalysisDisplay({ data, onProceed }: AIAnalysisProps) 
                 <CheckCircle className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-600 font-medium">{key}</p>
-                  <p className="text-sm text-gray-800 font-semibold truncate">{value}</p>
+                  <p className="text-sm text-gray-800 font-semibold break-words">{value}</p>
                 </div>
               </div>
             ))}
@@ -186,13 +185,12 @@ export default function AIAnalysisDisplay({ data, onProceed }: AIAnalysisProps) 
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-bold text-gray-800">{key}</span>
                   {param.rating && (
-                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                      param.rating.toLowerCase().includes('high') || param.rating.toLowerCase().includes('normal')
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${param.rating.toLowerCase().includes('high') || param.rating.toLowerCase().includes('normal')
                         ? 'bg-green-100 text-green-700'
                         : param.rating.toLowerCase().includes('medium')
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : 'bg-red-100 text-red-700'
-                    }`}>
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-red-100 text-red-700'
+                      }`}>
                       {param.rating}
                     </span>
                   )}
