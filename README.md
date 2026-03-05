@@ -124,7 +124,7 @@ pnpm install
 ### Step 3: Environment Variables
 The `.env.local` file is already configured with:
 ```env
-MONGODB_URI=mongodb+srv://sessi111111_db_user:mithiscan@cluster0.htkk43q.mongodb.net/mitti-scan?retryWrites=true&w=majority&appName=Cluster0
+MONGODB_URI=your_mongodb_uri_here
 JWT_SECRET=mitti_scan_agritech_2026_soil_health_secure_jwt_secret_key_9x7z4m2p
 NEXT_PUBLIC_API_URL=http://localhost:3000
 ```
